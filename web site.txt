@@ -1,0 +1,26 @@
+web site
+
+https://doto.kr/dashboard
+https://doto.kr/emails
+https://doto.kr/cards
+https://doto.kr/boards/71/posts
+https://doto.kr/messenger
+https://doto.kr/approvals
+https://doto.kr/official-documents
+https://doto.kr/schedules
+https://doto.kr/works
+https://doto.kr/surveys
+https://doto.kr/projects
+https://doto.kr/crm/contacts
+https://doto.kr/wiki
+https://doto.kr/webdisk
+https://doto.kr/hr/employees
+https://doto.kr/attendance
+https://doto.kr/payroll
+https://doto.kr/sales/quotations
+https://doto.kr/accounting/reconciliation
+https://doto.kr/affairs/fixed-assets
+https://doto.kr/mro
+https://doto.kr/ai-chat
+https://doto.kr/system/company
+https://doto.kr/mypage/profile
