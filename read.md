@@ -22,6 +22,8 @@
 ### 방법 B: 터미널에서 실행
 - 명령 프롬프트(CMD) 또는 PowerShell에서 아래 명령어를 실행합니다:
   ```powershell
+  .\run.bat
+  # 또는
   python run.py
   ```
 
