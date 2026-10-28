@@ -67,7 +67,13 @@ class WebCaptureApp(ctk.CTk):
             frame_opt, text="브라우저 로그인 및 세션 저장", fg_color="#3B8ED0", hover_color="#36719F",
             command=self._launch_login_session
         )
-        self.btn_session.grid(row=0, column=3, padx=15, pady=10, sticky="e")
+        self.btn_session.grid(row=0, column=3, padx=(10, 5), pady=10, sticky="e")
+
+        session_text = "🟢 세션 보관됨" if self.session_file.exists() else "⚪ 세션 미설정"
+        session_color = "#2CC985" if self.session_file.exists() else "#A0A0A0"
+        self.lbl_session_status = ctk.CTkLabel(frame_opt, text=session_text, text_color=session_color, font=("맑은 고딕", 11, "bold"))
+        self.lbl_session_status.grid(row=0, column=4, padx=(0, 15), pady=10, sticky="w")
+
         frame_opt.columnconfigure(3, weight=1)
 
         # 3. 실행 버튼 및 프로그레스 바 섹션
@@ -120,6 +126,9 @@ class WebCaptureApp(ctk.CTk):
             if msg_type == "log":
                 self.txt_log.insert(tk.END, data + "\n")
                 self.txt_log.see(tk.END)
+            elif msg_type == "session_updated":
+                self.lbl_session_status.configure(text="🟢 세션 보관됨", text_color="#2CC985")
+                self.btn_session.configure(state="normal")
             elif msg_type == "progress":
                 idx, total, url = data
                 val = idx / total if total > 0 else 0
@@ -144,18 +153,22 @@ class WebCaptureApp(ctk.CTk):
                 if urls:
                     start_url = urls[0]
 
+        self.btn_session.configure(state="disabled")
         threading.Thread(target=self._run_login_thread, args=(start_url,), daemon=True).start()
 
     def _run_login_thread(self, start_url: str):
-        self._append_log("브라우저 창을 엽니다. 로그인을 완료한 후 브라우저 창을 닫아주세요.")
+        self._append_log("--- 브라우저 로그인 세션 설정 시작 ---")
         try:
-            success = save_browser_session(start_url, self.session_file)
+            success = save_browser_session(start_url, self.session_file, on_log=self._append_log)
             if success:
-                self._append_log(f"로그인 세션이 성공적으로 저장되었습니다 ({self.session_file.name}).")
+                self._append_log(f"로그인 세션이 파일({self.session_file.name})에 안전하게 저장되었습니다.")
+                self.msg_queue.put(("session_updated", True))
             else:
                 self._append_log("세션 저장 실패")
+                self.btn_session.configure(state="normal")
         except Exception as e:
             self._append_log(f"세션 저장 중 오류 발생: {e}")
+            self.btn_session.configure(state="normal")
 
     def _start_capture(self):
         url_path = self.entry_url_file.get().strip()
