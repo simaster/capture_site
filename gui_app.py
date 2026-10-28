@@ -6,7 +6,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
-from capture_core import CaptureOptions, capture_urls, save_browser_session
+from capture_core import (
+    CaptureOptions,
+    capture_urls,
+    save_browser_session,
+    launch_debug_chrome,
+    is_chrome_debug_running
+)
 from utils import clean_url_list
 
 ctk.set_appearance_mode("Dark")
@@ -17,8 +23,8 @@ class WebCaptureApp(ctk.CTk):
         super().__init__()
 
         self.title("웹사이트 화면 자동 캡처 도구 (Web Capture Tool)")
-        self.geometry("780x680")
-        self.minsize(680, 560)
+        self.geometry("820x720")
+        self.minsize(720, 600)
 
         # 상태 제어 변수
         self.is_running = False
@@ -28,6 +34,7 @@ class WebCaptureApp(ctk.CTk):
 
         self._build_ui()
         self._check_queue()
+        self._check_chrome_status()
 
     def _build_ui(self):
         # 1. 파일 및 저장 폴더 설정 섹션
@@ -36,59 +43,99 @@ class WebCaptureApp(ctk.CTk):
 
         ctk.CTkLabel(frame_io, text="URL 파일 경로:", font=("맑은 고딕", 12, "bold")).grid(row=0, column=0, padx=10, pady=8, sticky="w")
         default_url_file = str(Path("web site.txt").resolve()) if Path("web site.txt").exists() else ""
-        self.entry_url_file = ctk.CTkEntry(frame_io, width=480)
+        self.entry_url_file = ctk.CTkEntry(frame_io, width=500)
         self.entry_url_file.insert(0, default_url_file)
         self.entry_url_file.grid(row=0, column=1, padx=5, pady=8, sticky="ew")
         ctk.CTkButton(frame_io, text="파일 찾기", width=80, command=self._browse_url_file).grid(row=0, column=2, padx=10, pady=8)
 
         ctk.CTkLabel(frame_io, text="저장 폴더 경로:", font=("맑은 고딕", 12, "bold")).grid(row=1, column=0, padx=10, pady=8, sticky="w")
         default_dir = str(Path.home() / "Downloads" / "doto_captures")
-        self.entry_output_dir = ctk.CTkEntry(frame_io, width=480)
+        self.entry_output_dir = ctk.CTkEntry(frame_io, width=500)
         self.entry_output_dir.insert(0, default_dir)
         self.entry_output_dir.grid(row=1, column=1, padx=5, pady=8, sticky="ew")
         ctk.CTkButton(frame_io, text="폴더 선택", width=80, command=self._browse_output_dir).grid(row=1, column=2, padx=10, pady=8)
 
         frame_io.columnconfigure(1, weight=1)
 
-        # 2. 캡처 옵션 & 세션 관리 섹션
+        # 2. 크롬 연동 & 로그인 세션 섹션
+        frame_login = ctk.CTkFrame(self)
+        frame_login.pack(fill="x", padx=15, pady=8)
+
+        ctk.CTkLabel(frame_login, text="[로그인 연동 설정]", font=("맑은 고딕", 12, "bold")).grid(row=0, column=0, padx=10, pady=(8, 4), sticky="w")
+
+        # 방법 1: 크롬 직접 연동 버튼
+        self.btn_open_chrome = ctk.CTkButton(
+            frame_login,
+            text="🌐 1. 로그인용 크롬(Chrome) 열기",
+            fg_color="#1F6AA5",
+            hover_color="#144870",
+            font=("맑은 고딕", 12, "bold"),
+            height=32,
+            command=self._launch_chrome_debug
+        )
+        self.btn_open_chrome.grid(row=1, column=0, padx=10, pady=8, sticky="w")
+
+        self.var_use_cdp = tk.BooleanVar(value=True)
+        self.chk_use_cdp = ctk.CTkCheckBox(
+            frame_login,
+            text="실행 중인 크롬(Chrome)과 연동하여 캡처 (방법 1 권장)",
+            variable=self.var_use_cdp,
+            font=("맑은 고딕", 12)
+        )
+        self.chk_use_cdp.grid(row=1, column=1, padx=10, pady=8, sticky="w")
+
+        self.lbl_chrome_status = ctk.CTkLabel(
+            frame_login,
+            text="⚪ 크롬 대기 중",
+            text_color="#A0A0A0",
+            font=("맑은 고딕", 11, "bold")
+        )
+        self.lbl_chrome_status.grid(row=1, column=2, padx=15, pady=8, sticky="e")
+        frame_login.columnconfigure(2, weight=1)
+
+        # 3. 캡처 옵션 섹션
         frame_opt = ctk.CTkFrame(self)
         frame_opt.pack(fill="x", padx=15, pady=8)
 
         self.var_full_page = tk.BooleanVar(value=True)
-        self.chk_full_page = ctk.CTkCheckBox(frame_opt, text="전체 페이지 스크롤 캡처(Full Page)", variable=self.var_full_page)
+        self.chk_full_page = ctk.CTkCheckBox(
+            frame_opt,
+            text="전체 페이지 스크롤 캡처(Full Page)",
+            variable=self.var_full_page
+        )
         self.chk_full_page.grid(row=0, column=0, padx=15, pady=10, sticky="w")
 
-        ctk.CTkLabel(frame_opt, text="추가 렌더링 대기(초):").grid(row=0, column=1, padx=(10, 5), pady=10, sticky="e")
-        self.entry_delay = ctk.CTkEntry(frame_opt, width=50)
+        frame_delay = ctk.CTkFrame(frame_opt, fg_color="transparent")
+        frame_delay.grid(row=0, column=1, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame_delay, text="추가 렌더링 대기(초):").pack(side="left", padx=(0, 5))
+        self.entry_delay = ctk.CTkEntry(frame_delay, width=50)
         self.entry_delay.insert(0, "1.0")
-        self.entry_delay.grid(row=0, column=2, padx=5, pady=10, sticky="w")
+        self.entry_delay.pack(side="left")
 
-        self.btn_session = ctk.CTkButton(
-            frame_opt, text="브라우저 로그인 및 세션 저장", fg_color="#3B8ED0", hover_color="#36719F",
-            command=self._launch_login_session
-        )
-        self.btn_session.grid(row=0, column=3, padx=(10, 5), pady=10, sticky="e")
-
-        session_text = "🟢 세션 보관됨" if self.session_file.exists() else "⚪ 세션 미설정"
-        session_color = "#2CC985" if self.session_file.exists() else "#A0A0A0"
-        self.lbl_session_status = ctk.CTkLabel(frame_opt, text=session_text, text_color=session_color, font=("맑은 고딕", 11, "bold"))
-        self.lbl_session_status.grid(row=0, column=4, padx=(0, 15), pady=10, sticky="w")
-
-        frame_opt.columnconfigure(3, weight=1)
-
-        # 3. 실행 버튼 및 프로그레스 바 섹션
+        # 4. 실행 버튼 및 프로그레스 바 섹션
         frame_action = ctk.CTkFrame(self)
         frame_action.pack(fill="x", padx=15, pady=8)
 
         self.btn_start = ctk.CTkButton(
-            frame_action, text="캡처 시작", fg_color="#2CC985", hover_color="#229965",
-            font=("맑은 고딕", 14, "bold"), height=38, command=self._start_capture
+            frame_action,
+            text="🚀 2. 캡처 시작",
+            fg_color="#2CC985",
+            hover_color="#229965",
+            font=("맑은 고딕", 14, "bold"),
+            height=40,
+            command=self._start_capture
         )
         self.btn_start.pack(side="left", padx=10, pady=10, expand=True, fill="x")
 
         self.btn_stop = ctk.CTkButton(
-            frame_action, text="작업 중단", fg_color="#D32F2F", hover_color="#9A0007",
-            font=("맑은 고딕", 14, "bold"), height=38, state="disabled", command=self._stop_capture
+            frame_action,
+            text="작업 중단",
+            fg_color="#D32F2F",
+            hover_color="#9A0007",
+            font=("맑은 고딕", 14, "bold"),
+            height=40,
+            state="disabled",
+            command=self._stop_capture
         )
         self.btn_stop.pack(side="right", padx=10, pady=10, expand=True, fill="x")
 
@@ -100,7 +147,7 @@ class WebCaptureApp(ctk.CTk):
         self.progress_bar.pack(fill="x", padx=15, pady=(0, 10))
         self.progress_bar.set(0)
 
-        # 4. 실시간 로그 창
+        # 5. 실시간 로그 창
         ctk.CTkLabel(self, text="실행 로그:", font=("맑은 고딕", 12, "bold")).pack(anchor="w", padx=15, pady=(5, 2))
         self.txt_log = ctk.CTkTextbox(self, height=220)
         self.txt_log.pack(fill="both", expand=True, padx=15, pady=(0, 15))
@@ -126,9 +173,6 @@ class WebCaptureApp(ctk.CTk):
             if msg_type == "log":
                 self.txt_log.insert(tk.END, data + "\n")
                 self.txt_log.see(tk.END)
-            elif msg_type == "session_updated":
-                self.lbl_session_status.configure(text="🟢 세션 보관됨", text_color="#2CC985")
-                self.btn_session.configure(state="normal")
             elif msg_type == "progress":
                 idx, total, url = data
                 val = idx / total if total > 0 else 0
@@ -144,7 +188,16 @@ class WebCaptureApp(ctk.CTk):
 
         self.after(100, self._check_queue)
 
-    def _launch_login_session(self):
+    def _check_chrome_status(self):
+        """배경에서 크롬 원격 디버깅 포트(9222) 상태를 주기적으로 확인"""
+        if not self.is_running:
+            if is_chrome_debug_running(port=9222):
+                self.lbl_chrome_status.configure(text="🟢 크롬 연결 가능 (포트 9222)", text_color="#2CC985")
+            else:
+                self.lbl_chrome_status.configure(text="⚪ 크롬 대기 중", text_color="#A0A0A0")
+        self.after(2000, self._check_chrome_status)
+
+    def _launch_chrome_debug(self):
         url_file = self.entry_url_file.get().strip()
         start_url = "https://doto.kr/dashboard"
         if url_file and Path(url_file).exists():
@@ -153,22 +206,17 @@ class WebCaptureApp(ctk.CTk):
                 if urls:
                     start_url = urls[0]
 
-        self.btn_session.configure(state="disabled")
-        threading.Thread(target=self._run_login_thread, args=(start_url,), daemon=True).start()
-
-    def _run_login_thread(self, start_url: str):
-        self._append_log("--- 브라우저 로그인 세션 설정 시작 ---")
-        try:
-            success = save_browser_session(start_url, self.session_file, on_log=self._append_log)
-            if success:
-                self._append_log(f"로그인 세션이 파일({self.session_file.name})에 안전하게 저장되었습니다.")
-                self.msg_queue.put(("session_updated", True))
-            else:
-                self._append_log("세션 저장 실패")
-                self.btn_session.configure(state="normal")
-        except Exception as e:
-            self._append_log(f"세션 저장 중 오류 발생: {e}")
-            self.btn_session.configure(state="normal")
+        self._append_log("--- [방법 1] 로그인용 Google Chrome 실행 중 ---")
+        success = launch_debug_chrome(port=9222, url=start_url)
+        if success:
+            self._append_log("Google Chrome 창이 열렸습니다.")
+            self._append_log("1) 열린 크롬 창에서 아이디와 비밀번호로 로그인해 주세요.")
+            self._append_log("2) 로그인이 완료된 후 [2. 캡처 시작] 버튼을 누르시면 됩니다.")
+            self._append_log("(※ 주의: 캡처가 진행되는 동안에는 크롬 창을 닫지 마세요)")
+            self.lbl_chrome_status.configure(text="🟢 크롬 실행됨 (포트 9222)", text_color="#2CC985")
+        else:
+            self._append_log("Google Chrome 실행 파일을 찾을 수 없습니다.")
+            messagebox.showerror("오류", "시스템에서 Google Chrome 실행 파일을 찾을 수 없습니다.")
 
     def _start_capture(self):
         url_path = self.entry_url_file.get().strip()
@@ -193,6 +241,19 @@ class WebCaptureApp(ctk.CTk):
             messagebox.showwarning("알림", "유효한 웹사이트 URL이 없습니다.")
             return
 
+        use_cdp = self.var_use_cdp.get()
+        if use_cdp:
+            if not is_chrome_debug_running(port=9222):
+                ans = messagebox.askyesno(
+                    "크롬 연결 안내",
+                    "로그인용 크롬(Chrome)이 아직 실행되지 않았습니다.\n\n"
+                    "지금 바로 로그인용 크롬 창을 열겠습니까?\n\n"
+                    "(크롬이 열리면 로그인 후 다시 '2. 캡처 시작'을 눌러주세요)"
+                )
+                if ans:
+                    self._launch_chrome_debug()
+                return
+
         try:
             delay = float(self.entry_delay.get())
         except ValueError:
@@ -200,7 +261,9 @@ class WebCaptureApp(ctk.CTk):
 
         options = CaptureOptions(
             full_page=self.var_full_page.get(),
-            delay_seconds=delay
+            delay_seconds=delay,
+            use_cdp=use_cdp,
+            cdp_port=9222
         )
 
         self.is_running = True
